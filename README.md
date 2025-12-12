@@ -2,6 +2,18 @@
 
 Chương trình macro đơn giản để ghi và phát lại các hành động bàn phím và chuột trên Windows.
 
+## 🍃 Tool Tự Động Hái Chè GTV
+
+**File mới:** `macro_auto.py` - Tool chuyên biệt cho tự động hóa lặp lại nhiều lần
+
+**Cách chạy:** Double-click `CHAY_AUTO.bat`
+
+**Tính năng:**
+- ✅ Tự động phát macro với số lần lặp lớn (100, 1000, v.v.)
+- ✅ Delay giữa các lần lặp
+- ✅ Phím tắt tiện lợi (F9, F10, F11)
+- ✅ Giao diện đơn giản, dễ sử dụng
+
 ## ✨ Tính năng
 
 - ✅ **Tự động cài đặt thư viện** - Chỉ cần click và chạy
