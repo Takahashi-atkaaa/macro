@@ -2,25 +2,58 @@
 # -*- coding: utf-8 -*-
 """
 Chương trình Macro cho Windows - Tất cả trong một
-Hỗ trợ ghi và phát lại các hành động bàn phím và chuột
-Với menu điều khiển đẹp và hotkeys tiện lợi
+Tự động cài đặt thư viện và chạy với menu điều khiển
 """
 
 import os
+import sys
 import time
 import json
-import sys
+import subprocess
 from datetime import datetime
 
-try:
-    import keyboard
-    import mouse
-except ImportError:
-    print("Đang cài đặt thư viện cần thiết...")
-    import subprocess
-    subprocess.check_call(["pip", "install", "keyboard", "mouse"])
-    import keyboard
-    import mouse
+# Tự động cài đặt thư viện nếu chưa có
+def install_requirements():
+    """Tự động cài đặt các thư viện cần thiết"""
+    required_packages = ['keyboard', 'mouse']
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            __import__(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print("=" * 60)
+        print("ĐANG CÀI ĐẶT THƯ VIỆN CẦN THIẾT...")
+        print("=" * 60)
+        print(f"Cần cài đặt: {', '.join(missing_packages)}")
+        print("Vui lòng đợi...")
+        print("-" * 60)
+        
+        for package in missing_packages:
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", package, "--quiet"])
+                print(f"✅ Đã cài đặt: {package}")
+            except Exception as e:
+                print(f"❌ Lỗi khi cài {package}: {e}")
+                print("\nVui lòng chạy với quyền Administrator!")
+                input("\nNhấn Enter để thoát...")
+                sys.exit(1)
+        
+        print("-" * 60)
+        print("✅ Đã cài đặt xong tất cả thư viện!")
+        print("Đang khởi động chương trình...")
+        time.sleep(1)
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+# Cài đặt thư viện trước khi import
+install_requirements()
+
+# Import sau khi đã cài đặt
+import keyboard
+import mouse
 
 
 class MacroRecorder:
@@ -249,7 +282,7 @@ class MenuController:
         print("  [6] 📂 Tải macro")
         print("  [7] 📋 Xem thông tin macro")
         print("  [8] 🗑️  Xóa macro hiện tại")
-        print("  [9] ⚙️  Cài đặt & Hotkeys")
+        print("  [9] ⚙️  Cài đặt")
         print("  [0] ❌ Thoát")
         print()
         print("-" * 60)

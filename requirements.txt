@@ -1,4 +1,0 @@
-keyboard>=0.13.5
-mouse>=0.7.1
-pyinstaller>=5.0
-
