@@ -79,20 +79,31 @@ class MacroRecorder:
         self.start_time = None
         self.playing = False
         self.current_macro_file = None
+        self.recording_start_delay = 3  # Delay 3 giây trước khi bắt đầu ghi thực sự
+        self.ignore_initial_events = True  # Bỏ qua các sự kiện trong delay
         
-    def start_recording(self):
-        """Bắt đầu ghi macro"""
+    def start_recording(self, delay=3):
+        """Bắt đầu ghi macro với delay"""
         if self.recording:
             return False, "Đang ghi rồi!"
             
         self.recording = True
         self.events = []
         self.start_time = time.time()
+        self.recording_start_delay = delay
+        self.ignore_initial_events = True
         
         keyboard.hook(self._on_keyboard_event)
         mouse.hook(self._on_mouse_event)
         
-        return True, "Đã bắt đầu ghi macro!"
+        # Tự động tắt ignore sau delay
+        def stop_ignoring():
+            time.sleep(delay)
+            self.ignore_initial_events = False
+        
+        threading.Thread(target=stop_ignoring, daemon=True).start()
+        
+        return True, f"Đã bắt đầu ghi macro! (Bỏ qua {delay}s đầu để chuẩn bị)"
         
     def stop_recording(self):
         """Dừng ghi macro"""
@@ -100,6 +111,7 @@ class MacroRecorder:
             return False, "Không đang ghi!"
             
         self.recording = False
+        self.ignore_initial_events = False
         keyboard.unhook_all()
         mouse.unhook_all()
         event_count = len(self.events)
@@ -109,42 +121,63 @@ class MacroRecorder:
         """Xử lý sự kiện bàn phím"""
         if not self.recording:
             return
+        
+        # Bỏ qua các sự kiện trong thời gian delay
+        if self.ignore_initial_events:
+            elapsed = time.time() - self.start_time
+            if elapsed < self.recording_start_delay:
+                return
             
         if event.event_type in ['down', 'up']:
             delay = time.time() - self.start_time
-            self.events.append({
-                'type': 'keyboard',
-                'event': event.event_type,
-                'key': event.name,
-                'time': delay
-            })
+            # Chỉ ghi nếu đã qua thời gian delay
+            if delay >= self.recording_start_delay:
+                self.events.append({
+                    'type': 'keyboard',
+                    'event': event.event_type,
+                    'key': event.name,
+                    'time': delay - self.recording_start_delay  # Trừ delay để thời gian bắt đầu từ 0
+                })
     
     def _on_mouse_event(self, event):
         """Xử lý sự kiện chuột"""
         if not self.recording:
             return
+        
+        # Bỏ qua các sự kiện trong thời gian delay
+        if self.ignore_initial_events:
+            elapsed = time.time() - self.start_time
+            if elapsed < self.recording_start_delay:
+                return
             
         delay = time.time() - self.start_time
+        
+        # Chỉ ghi nếu đã qua thời gian delay
+        if delay < self.recording_start_delay:
+            return
+        
+        # Tính lại thời gian từ sau delay
+        adjusted_time = delay - self.recording_start_delay
         
         if isinstance(event, mouse.ButtonEvent):
             self.events.append({
                 'type': 'mouse_button',
                 'event': event.event_type,
                 'button': event.button,
-                'time': delay
+                'time': adjusted_time
             })
         elif isinstance(event, mouse.MoveEvent):
             self.events.append({
                 'type': 'mouse_move',
                 'x': event.x,
                 'y': event.y,
-                'time': delay
+                'time': adjusted_time
             })
         elif isinstance(event, mouse.WheelEvent):
             self.events.append({
                 'type': 'mouse_wheel',
                 'delta': event.delta,
-                'time': delay
+                'time': adjusted_time
             })
     
     def save_macro(self, filename):
@@ -266,12 +299,32 @@ class MacroGUI:
         self.setup_hotkeys()
         self.update_status()
         
+        # Hiển thị thông báo về hotkeys khi khởi động
+        self.root.after(500, self.show_hotkey_info)
+        
     def setup_hotkeys(self):
         """Thiết lập phím tắt"""
         # Phím ESC để tắt khẩn cấp
         self.root.bind('<Escape>', lambda e: self.emergency_stop())
         # Phím F12 để tắt khẩn cấp
         self.root.bind('<F12>', lambda e: self.emergency_stop())
+        
+        # Phím F9 để bắt đầu/dừng ghi macro
+        self.root.bind('<F9>', lambda e: self.toggle_record_hotkey())
+        
+        # Phím F10 để dừng ghi macro
+        self.root.bind('<F10>', lambda e: self.stop_record())
+        
+        # Phím F11 để phát macro
+        self.root.bind('<F11>', lambda e: self.play_macro_with_default() if self.recorder.events else None)
+        
+        # Thiết lập global hotkeys với keyboard library (hoạt động ngay cả khi cửa sổ không focus)
+        try:
+            keyboard.add_hotkey('f9', self.toggle_record_global)
+            keyboard.add_hotkey('f10', self.stop_record_global)
+            keyboard.add_hotkey('f11', self.play_macro_global)
+        except:
+            pass  # Nếu không thể thiết lập global hotkey
         
     def setup_ui(self):
         """Thiết lập giao diện"""
@@ -506,6 +559,7 @@ class MacroGUI:
         )
         self.log_text.pack(padx=20, pady=(0, 20), fill="both", expand=True)
         self.log_text.insert("1.0", "Chương trình đã sẵn sàng!\n")
+        self.log_text.insert("end", "💡 Phím tắt: F9 (Ghi), F10 (Dừng), F11 (Phát), ESC/F12 (Tắt khẩn cấp)\n")
         self.log_text.config(state="disabled")
         
     def log(self, message):
@@ -564,17 +618,131 @@ class MacroGUI:
             )
         
         self.root.after(500, self.update_status)
-        
-    def toggle_record(self):
-        """Bật/tắt ghi macro"""
+    
+    def toggle_record_hotkey(self):
+        """Bật/tắt ghi macro từ hotkey (không có dialog, dùng delay 3s mặc định)"""
         if not self.recorder.recording:
-            success, message = self.recorder.start_recording()
+            # Tự động dùng delay 3 giây khi dùng hotkey
+            success, message = self.recorder.start_recording(delay=3)
             if success:
-                self.log(f"✅ {message}")
-                messagebox.showinfo("Thành công", message)
+                self.log(f"✅ {message} (F9)")
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Bắt đầu ghi (F9)",
+                    f"{message}\n\nBạn có 3 giây để chuẩn bị!\nCác thao tác trong 3 giây đầu sẽ bị bỏ qua."
+                ))
             else:
                 self.log(f"❌ {message}")
-                messagebox.showerror("Lỗi", message)
+        else:
+            self.stop_record()
+    
+    def toggle_record_global(self):
+        """Toggle record từ global hotkey"""
+        self.root.after(0, self.toggle_record_hotkey)
+    
+    def stop_record_global(self):
+        """Stop record từ global hotkey"""
+        self.root.after(0, self.stop_record)
+    
+    def play_macro_global(self):
+        """Play macro từ global hotkey"""
+        if self.recorder.events:
+            self.root.after(0, self.play_macro_with_default)
+    
+    def play_macro_with_default(self):
+        """Phát macro với giá trị mặc định (1 lần, tốc độ 1.0)"""
+        if not self.recorder.events:
+            return
+        self.log("▶️ Bắt đầu phát macro (F11 - mặc định: 1 lần, tốc độ 1.0x)")
+        threading.Thread(target=lambda: self._play_in_thread(1, 1.0), daemon=True).start()
+        
+    def toggle_record(self):
+        """Bật/tắt ghi macro (với dialog để chọn delay)"""
+        if not self.recorder.recording:
+            # Dialog để chọn delay
+            dialog = tk.Toplevel(self.root)
+            dialog.title("Bắt đầu ghi Macro")
+            dialog.geometry("380x250")
+            dialog.configure(bg=self.bg_color)
+            dialog.transient(self.root)
+            dialog.grab_set()
+            
+            tk.Label(
+                dialog,
+                text="⏱️ Thời gian delay trước khi ghi:",
+                bg=self.bg_color,
+                fg=self.fg_color,
+                font=("Arial", 12, "bold")
+            ).pack(pady=10)
+            
+            tk.Label(
+                dialog,
+                text="(Để bạn có thời gian chuẩn bị và\nbỏ qua các thao tác click vào cửa sổ macro)",
+                bg=self.bg_color,
+                fg="#cccccc",
+                font=("Arial", 9)
+            ).pack(pady=5)
+            
+            delay_frame = tk.Frame(dialog, bg=self.bg_color)
+            delay_frame.pack(pady=10)
+            
+            delay_var = tk.IntVar(value=3)
+            delays = [("2 giây", 2), ("3 giây (Khuyến nghị)", 3), ("5 giây", 5), ("Không delay", 0)]
+            
+            for text, value in delays:
+                tk.Radiobutton(
+                    delay_frame,
+                    text=text,
+                    variable=delay_var,
+                    value=value,
+                    bg=self.bg_color,
+                    fg=self.fg_color,
+                    selectcolor="#444444",
+                    activebackground=self.bg_color,
+                    activeforeground=self.fg_color,
+                    font=("Arial", 10)
+                ).pack(anchor="w", padx=20, pady=2)
+            
+            def start_with_delay():
+                delay = delay_var.get()
+                dialog.destroy()
+                success, message = self.recorder.start_recording(delay=delay)
+                if success:
+                    self.log(f"✅ {message}")
+                    if delay > 0:
+                        messagebox.showinfo(
+                            "Bắt đầu ghi",
+                            f"{message}\n\nBạn có {delay} giây để chuẩn bị!\nCác thao tác trong {delay} giây đầu sẽ bị bỏ qua."
+                        )
+                    else:
+                        messagebox.showinfo("Thành công", message)
+                else:
+                    self.log(f"❌ {message}")
+                    messagebox.showerror("Lỗi", message)
+            
+            btn_frame = tk.Frame(dialog, bg=self.bg_color)
+            btn_frame.pack(pady=15)
+            
+            tk.Button(
+                btn_frame,
+                text="Bắt đầu ghi",
+                command=start_with_delay,
+                bg=self.button_color,
+                fg="white",
+                font=("Arial", 11, "bold"),
+                padx=20,
+                pady=5
+            ).pack(side="left", padx=5)
+            
+            tk.Button(
+                btn_frame,
+                text="Hủy",
+                command=dialog.destroy,
+                bg="#666666",
+                fg="white",
+                font=("Arial", 10),
+                padx=15,
+                pady=5
+            ).pack(side="left", padx=5)
         else:
             self.stop_record()
             
@@ -737,18 +905,26 @@ class MacroGUI:
             self.log("🗑️ Đã xóa macro")
             messagebox.showinfo("Thành công", "Đã xóa macro!")
             
+    def show_hotkey_info(self):
+        """Hiển thị thông tin hotkeys khi khởi động"""
+        self.log("💡 Phím tắt: F9 (Ghi), F10 (Dừng ghi), F11 (Phát), ESC/F12 (Tắt khẩn cấp)")
+    
+    def show_hotkey_info(self):
+        """Hiển thị thông tin hotkeys khi khởi động (không hiện dialog)"""
+        pass  # Đã hiển thị trong log
+    
     def show_settings(self):
         """Hiển thị cài đặt"""
         settings_text = """HƯỚNG DẪN SỬ DỤNG:
 
 1. Ghi Macro:
-   - Click nút "Ghi Macro"
+   - Click nút "Ghi Macro" hoặc nhấn F9
    - Thực hiện các hành động
-   - Click "Dừng Ghi" khi xong
+   - Click "Dừng Ghi" hoặc nhấn F9/F10 khi xong
 
 2. Phát Macro:
-   - Click "Phát Macro"
-   - Nhập số lần lặp và tốc độ
+   - Click "Phát Macro" hoặc nhấn F11
+   - Nhập số lần lặp và tốc độ (nếu dùng nút)
    - Click "Dừng Phát" nếu cần
 
 3. Lưu/Tải:
@@ -761,10 +937,18 @@ class MacroGUI:
    - Hoặc nhấn phím F12
    - Sẽ dừng tất cả hoạt động ngay lập tức
 
+📌 PHÍM TẮT (HOTKEYS):
+   F9  - Bắt đầu/Dừng ghi macro
+   F10 - Dừng ghi macro
+   F11 - Phát macro (mặc định: 1 lần, tốc độ 1.0x)
+   ESC - Tắt khẩn cấp
+   F12 - Tắt khẩn cấp
+
 LƯU Ý:
 - Có thể cần chạy với quyền Administrator
 - Luôn lưu macro sau khi ghi
 - Dùng nút TẮT KHẨN CẤP nếu macro chạy sai
+- Phím tắt hoạt động ngay cả khi cửa sổ không focus
 """
         messagebox.showinfo("Cài đặt & Hướng dẫn", settings_text)
         
