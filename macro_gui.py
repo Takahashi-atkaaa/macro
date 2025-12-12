@@ -263,7 +263,15 @@ class MacroGUI:
         
         self.root.configure(bg=self.bg_color)
         self.setup_ui()
+        self.setup_hotkeys()
         self.update_status()
+        
+    def setup_hotkeys(self):
+        """Thiết lập phím tắt"""
+        # Phím ESC để tắt khẩn cấp
+        self.root.bind('<Escape>', lambda e: self.emergency_stop())
+        # Phím F12 để tắt khẩn cấp
+        self.root.bind('<F12>', lambda e: self.emergency_stop())
         
     def setup_ui(self):
         """Thiết lập giao diện"""
@@ -443,6 +451,23 @@ class MacroGUI:
             command=self.clear_macro
         ).pack(side="left", padx=5, fill="x", expand=True)
         
+        # Emergency stop button (nổi bật)
+        self.emergency_btn = tk.Button(
+            buttons_frame,
+            text="🛑 TẮT KHẨN CẤP",
+            font=("Arial", 14, "bold"),
+            bg="#ff0000",
+            fg="white",
+            activebackground="#cc0000",
+            activeforeground="white",
+            relief="raised",
+            padx=20,
+            pady=15,
+            cursor="hand2",
+            command=self.emergency_stop
+        )
+        self.emergency_btn.pack(fill="x", pady=10)
+        
         # Settings button
         tk.Button(
             buttons_frame,
@@ -524,6 +549,20 @@ class MacroGUI:
         self.play_btn.config(state="normal" if (not self.recorder.playing and self.recorder.events) else "disabled")
         self.stop_play_btn.config(state="normal" if self.recorder.playing else "disabled")
         
+        # Cập nhật nút tắt khẩn cấp - luôn bật, nhưng nổi bật hơn khi đang chạy
+        if self.recorder.recording or self.recorder.playing:
+            self.emergency_btn.config(
+                bg="#ff0000",
+                text="🛑 TẮT KHẨN CẤP (ESC/F12)",
+                font=("Arial", 14, "bold")
+            )
+        else:
+            self.emergency_btn.config(
+                bg="#cc0000",
+                text="🛑 TẮT KHẨN CẤP",
+                font=("Arial", 12, "bold")
+            )
+        
         self.root.after(500, self.update_status)
         
     def toggle_record(self):
@@ -595,6 +634,29 @@ class MacroGUI:
         else:
             self.log(f"❌ {message}")
             messagebox.showerror("Lỗi", message)
+            
+    def emergency_stop(self):
+        """Tắt khẩn cấp - Dừng tất cả"""
+        stopped_anything = False
+        
+        # Dừng ghi nếu đang ghi
+        if self.recorder.recording:
+            success, message = self.recorder.stop_recording()
+            if success:
+                self.log(f"🛑 TẮT KHẨN CẤP: {message}")
+                stopped_anything = True
+                
+        # Dừng phát nếu đang phát
+        if self.recorder.playing:
+            success, message = self.recorder.stop_playing()
+            if success:
+                self.log(f"🛑 TẮT KHẨN CẤP: {message}")
+                stopped_anything = True
+                
+        if stopped_anything:
+            messagebox.showwarning("Tắt khẩn cấp", "Đã dừng tất cả hoạt động!")
+        else:
+            messagebox.showinfo("Thông báo", "Không có hoạt động nào đang chạy.")
             
     def stop_play(self):
         """Dừng phát macro"""
@@ -693,9 +755,16 @@ class MacroGUI:
    - Dùng nút "Lưu Macro" để lưu
    - Dùng nút "Tải Macro" để tải
 
+4. TẮT KHẨN CẤP:
+   - Click nút "TẮT KHẨN CẤP" (màu đỏ)
+   - Hoặc nhấn phím ESC
+   - Hoặc nhấn phím F12
+   - Sẽ dừng tất cả hoạt động ngay lập tức
+
 LƯU Ý:
 - Có thể cần chạy với quyền Administrator
 - Luôn lưu macro sau khi ghi
+- Dùng nút TẮT KHẨN CẤP nếu macro chạy sai
 """
         messagebox.showinfo("Cài đặt & Hướng dẫn", settings_text)
         
@@ -719,4 +788,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
